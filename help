@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ihre Karte</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+</head>
+<body>
+
+<div id="map" style="width: 100%; height: 500px;"></div>
+
+<script>
+    mapboxgl.accessToken = 'CENSORED';
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/neustartversuchen/cllo39v0m002w01qy0tt8ah9a',
+        center: [9.9937, 53.5511],
+        zoom: 12
+    });
+	
+    const categories = {
+        "airport": {
+            query: '[out:json];node["aeroway"="aerodrome"]',
+            svg: "icons/airportr.png",
+            width: '30px',
+            height: '30px'
+        },
+        "shopClothes": {
+            query: '[out:json];node["shop"="clothes"]',
+            svg: "icons/clothes3r.png",
+            width: '30px',
+            height: '30px'
+        },
+        "fuel": {
+            query: '[out:json];node["amenity"="fuel"]',
+            svg: "icons/gas-stationr.png",
+            width: '28px',
+            height: '28px'
+        },
+        "supermarket": {
+            query: '[out:json];node["shop"="supermarket"]',
+            svg: "icons/storer.png",
+            width: '30px',
+            height: '30px'
+        },
+        "tattoo": {
+            query: '[out:json];node["shop"="tattoo"]',
+            svg: "icons/tattoo3r.png",
+            width: '30px',
+            height: '30px'
+        },
+        "hospital": {
+            query: '[out:json];node["amenity"="hospital"]',
+            svg: "icons/medicalr.png",
+            width: '30px',
+            height: '30px'
+        }
+    };
+
+    // Throttle Funktion
+    function throttle(func, limit) {
+        let inThrottle;
+        return function() {
+            const args = arguments;
+            const context = this;
+            if (!inThrottle) {
+                func.apply(context, args);
+                inThrottle = true;
+                setTimeout(() => inThrottle = false, limit);
+            }
+        }
+    }
+
+    function reloadData() {
+        for (let category in categories) {
+            fetchCategoryData(category);
+        }
+    }
+
+    const throttledReload = throttle(reloadData, 2000);  // 2000ms = 2 Sekunden
+
+    
+    
+
+    map.on('load', function() {
+        for (let category in categories) {
+            map.loadImage(categories[category].svg, (error, image) => {
+				if (error) throw error;
+				if (!map.hasImage(category)) {
+					map.addImage(category, image);
+				}
+			});
+
+
+            fetchCategoryData(category);
+        }
+
+        map.on('moveend', throttledReload);
+    });
+
+    function fetchCategoryData(category) {
+        const bboxArray = map.getBounds().toArray();
+        const bbox = [
+            bboxArray[0][1],
+            bboxArray[0][0],
+            bboxArray[1][1],
+            bboxArray[1][0]
+        ].join(",");
+
+        fetch(`https://overpass-api.de/api/interpreter?data=${categories[category].query}(${bbox});out;`)
+            .then(response => response.json())
+            .then(data => {
+                const geoData = {
+                    type: 'FeatureCollection',
+                    features: data.elements.map(el => ({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [el.lon, el.lat]
+                        }
+                    }))
+                };
+
+                if (map.getSource(category)) {
+                    map.getSource(category).setData(geoData);
+                } else {
+                    map.addSource(category, {
+                        type: 'geojson',
+                        data: geoData,
+                        cluster: true,
+                        clusterMaxZoom: 14,
+                        clusterRadius: 50
+                    });
+
+                    map.addLayer({
+                        id: `${category}-clusters`,
+                        type: 'symbol',
+                        source: category,
+                        filter: ['has', 'point_count'],
+                        layout: {
+                            'icon-image': category,
+                            'icon-size': 0.5
+                        }
+                    });
+
+                    map.addLayer({
+                        id: `${category}-unclustered-point`,
+                        type: 'symbol',
+                        source: category,
+                        filter: ['!', ['has', 'point_count']],
+                        layout: {
+                            'icon-image': category,
+                            'icon-size': 0.5
+                        }
+                    });
+                }
+            });
+    }
+
+</script>
+</body>
+</html>
